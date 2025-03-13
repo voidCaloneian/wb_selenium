@@ -4,11 +4,6 @@
 
 ## Как работает скрипт
 
-0. **Запустите хром в режиме дебагинг:**
-   ```bash
-   google-chrome --remote-debugging-port=9222 --user-data-dir="/tmp/unique_chrome_profile"
-   ```
-
 1. **Подключение к Chrome через remote debugging:**  
    Скрипт запускает Selenium с настройками для подключения к уже запущенному браузеру Chrome, запущенному с включенной опцией remote debugging (порт 9222).
 
