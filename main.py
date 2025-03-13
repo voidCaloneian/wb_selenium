@@ -4,6 +4,8 @@ import json
 import re
 import subprocess
 import threading
+import asyncio
+import aiohttp
 import requests
 import keyboard
 from datetime import datetime
@@ -34,23 +36,50 @@ logger.setLevel("INFO")
 def get_output_folder(driver) -> str:
     """
     Извлекает артикль из URL по шаблону /catalog/<артикль>/feedbacks.
-    Возвращает строку с именем папки, равную артиклю.
+    Возвращает строку с путем: videos/<артикль>.
     """
     current_url = driver.current_url
-    article_match = re.search(r"/catalog/(\d+)/feedbacks", current_url)
+    article_match = re.search(r"/catalog/(\d+)", current_url)
     if article_match:
         article = article_match.group(1)
     else:
         article = "unknown_article"
 
-    logger.info(f"Определено название папки: {article}")
-    return article
+    folder = os.path.join("videos", article)
+    logger.info(f"Определено название папки: {folder}")
+    return folder
 
 
-def download_ts_segments(driver, folder: str) -> list:
+async def download_segment(
+    session: aiohttp.ClientSession, seg_url: str, filename: str, i: int
+) -> str:
     """
-    Извлекает логи производительности (network) из Selenium,
-    находит TS-сегменты, скачивает их в папку folder и возвращает список путей к файлам.
+    Асинхронно скачивает один TS-сегмент.
+    При успешном скачивании сохраняет контент в filename и возвращает имя файла.
+    В случае ошибки возвращает None.
+    """
+    try:
+        async with session.get(seg_url) as response:
+            if response.status == 200:
+                content = await response.read()
+                with open(filename, "wb") as f:
+                    f.write(content)
+                logger.info(f"Сегмент {i} скачан: {filename}")
+                return filename
+            else:
+                logger.error(
+                    f"Ошибка скачивания сегмента {i}: статус {response.status}"
+                )
+                return None
+    except Exception as exc:
+        logger.error(f"Ошибка при скачивании сегмента {i} с URL {seg_url}: {exc}")
+        return None
+
+
+async def download_ts_segments_async(driver, folder: str) -> list:
+    """
+    Асинхронно извлекает TS-сегменты из логов, скачивает их в папку folder и возвращает список путей к файлам.
+    Порядок сегментов сохраняется согласно сортировке по числовому индексу в URL.
     """
     logger.info("Извлекаем сетевые логи для поиска TS-сегментов...")
     logs = driver.get_log("performance")
@@ -70,6 +99,7 @@ def download_ts_segments(driver, folder: str) -> list:
         logger.info("TS-сегменты не найдены в логах.")
         return []
 
+    # Сортируем сегменты по числовому значению в конце URL
     try:
         ts_urls = sorted(ts_urls, key=lambda url: int(url.rstrip(".ts").split("/")[-1]))
     except Exception as e:
@@ -80,19 +110,17 @@ def download_ts_segments(driver, folder: str) -> list:
     logger.info(f"Найдено {len(ts_urls)} TS-сегментов: {ts_urls}")
     downloaded_files = []
     os.makedirs(folder, exist_ok=True)
-    for i, seg_url in enumerate(ts_urls, start=1):
-        try:
-            r = requests.get(seg_url, stream=True)
-            if r.status_code == 200:
-                filename = os.path.join(folder, f"segment_{i}.ts")
-                with open(filename, "wb") as f:
-                    f.write(r.content)
-                logger.info(f"Сегмент {i} скачан: {filename}")
-                downloaded_files.append(filename)
-            else:
-                logger.error(f"Ошибка скачивания сегмента {i}: статус {r.status_code}")
-        except Exception as exc:
-            logger.error(f"Ошибка при скачивании сегмента {i} с URL {seg_url}: {exc}")
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for i, seg_url in enumerate(ts_urls, start=1):
+            filename = os.path.join(folder, f"segment_{i}.ts")
+            tasks.append(download_segment(session, seg_url, filename, i))
+        # Запускаем задачи параллельно и ждем их завершения
+        results = await asyncio.gather(*tasks)
+        # results сохраняет порядок задач, поэтому порядок файлов соответствует порядку сортировки ts_urls
+        for file in results:
+            if file is not None:
+                downloaded_files.append(file)
     return downloaded_files
 
 
@@ -149,13 +177,13 @@ def merge_ts_segments(ts_files: list, folder: str) -> None:
 def process_video_download() -> None:
     """
     Основная функция, вызываемая при нажатии F4.
-    Извлекает TS-сегменты из логов, скачивает их и объединяет в итоговое видео,
-    которое сохраняется в папку с артиклем в качестве имени.
+    Извлекает TS-сегменты из логов, скачивает их (асинхронно) и объединяет в итоговое видео,
+    которое сохраняется в папку с артиклем (внутри videos/).
     """
     global driver
     folder = get_output_folder(driver)
     logger.info("Начинается обработка TS-сегментов для формирования видео...")
-    ts_files = download_ts_segments(driver, folder)
+    ts_files = asyncio.run(download_ts_segments_async(driver, folder))
     if ts_files:
         merge_ts_segments(ts_files, folder)
     else:
