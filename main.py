@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import re
-import time
 import subprocess
 import threading
 import requests
@@ -30,25 +29,6 @@ handler.setFormatter(
 logger = colorlog.getLogger()
 logger.addHandler(handler)
 logger.setLevel("INFO")
-
-
-def launch_chrome() -> None:
-    """
-    Запускает Google Chrome в отдельном процессе с remote debugging.
-    """
-    chrome_cmd = [
-        "google-chrome",
-        "--remote-debugging-port=9222",
-        "--user-data-dir=/tmp/unique_chrome_profile",
-    ]
-    try:
-        subprocess.Popen(chrome_cmd)
-        logger.info("Google Chrome запущен с remote debugging.")
-        # Даем ему время на инициализацию
-        time.sleep(3)
-    except Exception as exc:
-        logger.error(f"Ошибка при запуске Chrome: {exc}")
-        sys.exit(1)
 
 
 def get_output_folder(driver) -> str:
@@ -189,7 +169,6 @@ def on_f4_pressed() -> None:
 
 def main() -> None:
     global driver
-    launch_chrome()
 
     # Подключаемся к запущенному браузеру Chrome через remote debugging
     chrome_options = Options()
