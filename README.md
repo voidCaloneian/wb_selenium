@@ -24,6 +24,12 @@
 
 ## Как работать со скриптом
 
+0. Клонируйте репозиторий, либо скачайте, нажав на синюю кнопку **Code**, далее **Download ZIP**
+   ```bash
+   git clone git@github.com:voidCaloneian/wb_selenium.git
+   cd wb_selenium
+   ```
+
 1. **Запуск браузера с удалённой отладкой:**  
    Убедитесь, что у вас установлен Google Chrome. Запустите его с опцией remote debugging, например:
    ```bash
